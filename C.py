@@ -11,6 +11,7 @@ import subprocess
 import threading
 import aiohttp
 import concurrent.futures
+import signal
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
 
@@ -147,6 +148,7 @@ class UltraTunnelManager:
         
         if self.ngrok_process:
             self.ngrok_process.terminate()
+            self.ngrok_process.wait()
         
         subprocess.run(["pkill", "ngrok"], capture_output=True)
 
@@ -1204,27 +1206,46 @@ def cleanup_on_exit():
     ultra_tunnel_manager.stop_all_tunnels()
     instant_attack_manager.is_running = False
 
+def signal_handler(signum, frame):
+    """Handle shutdown signals"""
+    print(f"\n🛑 Received signal {signum}, shutting down Ultra Bot...")
+    cleanup_on_exit()
+    exit(0)
+
 async def startup_tasks():
     """Start background tasks"""
     await instant_attack_manager.start_worker()
     ultra_tunnel_manager.start_ngrok_service()
 
-if __name__ == "__main__":
+async def main():
+    """Main async function to run the bot"""
     logging.basicConfig(level=logging.INFO)
     
     print("💥 STARTING ULTRA DDoS BOT...")
     print("🚀 Features: Instant Attacks • Auto-Tunnels • Power Boosting")
     
     # Start background services
-    asyncio.run(startup_tasks())
+    await startup_tasks()
     
     app = build_app()
     
+    # Register signal handlers for graceful shutdown
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
     try:
-        app.run_polling()
-    except KeyboardInterrupt:
-        print("\n🛑 Ultra Bot stopped by user")
-        ultra_tunnel_manager.stop_all_tunnels()
+        print("🤖 Ultra Bot is now running...")
+        await app.run_polling()
     except Exception as e:
         print(f"❌ Ultra Bot error: {e}")
-        ultra_tunnel_manager.stop_all_tunnels()
+    finally:
+        print("🔄 Performing final cleanup...")
+        cleanup_on_exit()
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\n🛑 Ultra Bot stopped by user")
+    except Exception as e:
+        print(f"❌ Fatal error: {e}")
