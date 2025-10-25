@@ -28,11 +28,11 @@ from telegram.ext import (
 )
 
 # ---------------- Configuration ----------------
-BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8429281956:AAEnKnH1OZSwI6BdzJUqmbZpgqObJ1AZ7JY")
-DEVELOPER_TAG = "@DESTROYER_REAL_OFC"
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8457763206:AAE_o4kb-RRjA0ChqVFHc8t_6Qd7vcHXo1A")
+DEVELOPER_TAG = "@BITCH_lI_mBACK"
 
 # Owner and admin control
-OWNER_IDS = {8484157475}
+OWNER_IDS = {7848273230}
 ADMINS_FILE = "admins.json"
 USERS_FILE = "users.json"
 TOKENS_FILE = "tokens.txt"
@@ -529,6 +529,293 @@ def validate_github_token(token: str) -> bool:
     except:
         return False
 
+# ---------------- Missing Command Handlers ----------------
+async def cmd_ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ping command to check bot responsiveness"""
+    start_time = time.time()
+    message = await update.message.reply_text("🏓 Pinging...")
+    end_time = time.time()
+    ping_time = round((end_time - start_time) * 1000, 2)
+    
+    await message.edit_text(f"🏓 <b>ULTRA PONG!</b>\n⚡ Response Time: <code>{ping_time}ms</code>", parse_mode='HTML')
+
+async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show bot status"""
+    try:
+        uid = update.effective_user.id
+        
+        if not is_user_approved(uid):
+            await update.message.reply_text("❌ <b>Access Denied</b>", parse_mode='HTML')
+            return
+        
+        # System status
+        active_tunnels = ultra_tunnel_manager.get_active_tunnel_count()
+        attack_queue_size = instant_attack_manager.attack_queue.qsize()
+        
+        # User stats
+        users = get_users()
+        active_users = len([uid for uid in users if is_user_approved(int(uid))])
+        
+        # Token stats
+        all_tokens = load_all_token_lines()
+        token_count = len(all_tokens)
+        
+        status_msg = f"""
+📊 <b>ULTRA BOT STATUS</b>
+
+╔══════════════════════╗
+║     🚀 SYSTEM STATUS ║
+╠══════════════════════╣
+║ • Active Tunnels: {active_tunnels}
+║ • Attack Queue: {attack_queue_size}
+║ • Active Users: {active_users}
+║ • Total Tokens: {token_count}
+║ • Uptime: Starting...
+╚══════════════════════╝
+
+🟢 <b>ALL SYSTEMS OPERATIONAL</b>
+        """.strip()
+        
+        await update.message.reply_text(status_msg, parse_mode='HTML')
+        
+    except Exception as e:
+        await update.message.reply_text("❌ <b>Status check failed</b>", parse_mode='HTML')
+
+async def cmd_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """List all users"""
+    try:
+        uid = update.effective_user.id
+        
+        if not is_admin(uid):
+            await update.message.reply_text("❌ <b>Admin Only</b>", parse_mode='HTML')
+            return
+        
+        users = get_users()
+        if not users:
+            await update.message.reply_text("👥 <b>No users found</b>", parse_mode='HTML')
+            return
+        
+        users_list = "👥 <b>ULTRA USER LIST</b>\n\n"
+        for user_id, info in users.items():
+            try:
+                expires_str = info.get("expires", "")
+                expires = datetime.fromisoformat(expires_str.replace("Z", "+00:00"))
+                days_left = max(0, (expires - datetime.utcnow()).days)
+                status = "🟢" if days_left > 0 else "🔴"
+                users_list += f"{status} <code>{user_id}</code> - {days_left} days\n"
+            except:
+                users_list += f"❌ <code>{user_id}</code> - Invalid date\n"
+        
+        await update.message.reply_text(users_list, parse_mode='HTML')
+        
+    except Exception as e:
+        await update.message.reply_text("❌ Error loading users")
+
+async def cmd_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Check token validity"""
+    try:
+        uid = update.effective_user.id
+        
+        if not is_user_approved(uid):
+            await update.message.reply_text("❌ <b>Access Denied</b>", parse_mode='HTML')
+            return
+        
+        user_tokens = [line.split(":", 1)[1] for line in load_all_token_lines() if line.startswith(f"{uid}:")]
+        
+        if not user_tokens:
+            await update.message.reply_text("❌ <b>No tokens found for your account</b>", parse_mode='HTML')
+            return
+        
+        checking_msg = await update.message.reply_text("🔍 <b>Checking token validity...</b>", parse_mode='HTML')
+        
+        valid_tokens = []
+        invalid_tokens = []
+        
+        for token in user_tokens:
+            if validate_github_token(token):
+                valid_tokens.append(token)
+            else:
+                invalid_tokens.append(token)
+        
+        result_msg = f"""
+✅ <b>TOKEN VALIDITY CHECK</b>
+
+╔══════════════════════╗
+║     📊 RESULTS      ║
+╠══════════════════════╣
+║ • Valid: {len(valid_tokens)}
+║ • Invalid: {len(invalid_tokens)}
+║ • Total: {len(user_tokens)}
+╚══════════════════════╝
+
+💡 <i>Remove invalid tokens for better performance</i>
+        """.strip()
+        
+        await checking_msg.edit_text(result_msg, parse_mode='HTML')
+        
+    except Exception as e:
+        await update.message.reply_text("❌ Error checking tokens")
+
+async def cmd_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Add user (admin only)"""
+    try:
+        uid = update.effective_user.id
+        
+        if not is_admin(uid):
+            await update.message.reply_text("❌ <b>Admin Only</b>", parse_mode='HTML')
+            return
+        
+        if len(context.args) != 2:
+            await update.message.reply_text("📋 <b>Usage:</b> <code>/add userid days</code>", parse_mode='HTML')
+            return
+        
+        user_id = int(context.args[0])
+        days = int(context.args[1])
+        
+        add_user(user_id, days)
+        await update.message.reply_text(f"✅ <b>Added user</b> <code>{user_id}</code> <b>for {days} days</b>", parse_mode='HTML')
+        
+    except Exception as e:
+        await update.message.reply_text("❌ Error adding user")
+
+async def cmd_remove(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Remove user (admin only)"""
+    try:
+        uid = update.effective_user.id
+        
+        if not is_admin(uid):
+            await update.message.reply_text("❌ <b>Admin Only</b>", parse_mode='HTML')
+            return
+        
+        if len(context.args) != 1:
+            await update.message.reply_text("📋 <b>Usage:</b> <code>/remove userid</code>", parse_mode='HTML')
+            return
+        
+        user_id = int(context.args[0])
+        remove_user(user_id)
+        await update.message.reply_text(f"✅ <b>Removed user</b> <code>{user_id}</code>", parse_mode='HTML')
+        
+    except Exception as e:
+        await update.message.reply_text("❌ Error removing user")
+
+async def cmd_addadmin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Add admin (owner only)"""
+    try:
+        uid = update.effective_user.id
+        
+        if not is_owner(uid):
+            await update.message.reply_text("❌ <b>Owner Only</b>", parse_mode='HTML')
+            return
+        
+        if len(context.args) != 1:
+            await update.message.reply_text("📋 <b>Usage:</b> <code>/addadmin userid</code>", parse_mode='HTML')
+            return
+        
+        user_id = int(context.args[0])
+        add_admin(user_id)
+        await update.message.reply_text(f"✅ <b>Added admin</b> <code>{user_id}</code>", parse_mode='HTML')
+        
+    except Exception as e:
+        await update.message.reply_text("❌ Error adding admin")
+
+async def cmd_removeadmin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Remove admin (owner only)"""
+    try:
+        uid = update.effective_user.id
+        
+        if not is_owner(uid):
+            await update.message.reply_text("❌ <b>Owner Only</b>", parse_mode='HTML')
+            return
+        
+        if len(context.args) != 1:
+            await update.message.reply_text("📋 <b>Usage:</b> <code>/removeadmin userid</code>", parse_mode='HTML')
+            return
+        
+        user_id = int(context.args[0])
+        remove_admin(user_id)
+        await update.message.reply_text(f"✅ <b>Removed admin</b> <code>{user_id}</code>", parse_mode='HTML')
+        
+    except Exception as e:
+        await update.message.reply_text("❌ Error removing admin")
+
+async def cmd_threads(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Set default threads (admin only)"""
+    try:
+        uid = update.effective_user.id
+        
+        if not is_admin(uid):
+            await update.message.reply_text("❌ <b>Admin Only</b>", parse_mode='HTML')
+            return
+        
+        if len(context.args) != 1:
+            current = get_default_threads()
+            await update.message.reply_text(f"📊 <b>Current threads:</b> {current}\n📋 <b>Usage:</b> <code>/threads number</code>", parse_mode='HTML')
+            return
+        
+        threads = int(context.args[0])
+        set_default_threads(threads)
+        await update.message.reply_text(f"✅ <b>Set default threads to</b> {threads}", parse_mode='HTML')
+        
+    except Exception as e:
+        await update.message.reply_text("❌ Error setting threads")
+
+async def cmd_setconcurrent(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Set concurrent attacks (admin only)"""
+    try:
+        uid = update.effective_user.id
+        
+        if not is_admin(uid):
+            await update.message.reply_text("❌ <b>Admin Only</b>", parse_mode='HTML')
+            return
+        
+        if len(context.args) != 1:
+            current = get_concurrent()
+            await update.message.reply_text(f"📊 <b>Current concurrent:</b> {current}\n📋 <b>Usage:</b> <code>/setconcurrent number</code>", parse_mode='HTML')
+            return
+        
+        concurrent = int(context.args[0])
+        set_concurrent(concurrent)
+        await update.message.reply_text(f"✅ <b>Set concurrent attacks to</b> {concurrent}", parse_mode='HTML')
+        
+    except Exception as e:
+        await update.message.reply_text("❌ Error setting concurrent")
+
+async def cmd_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Upload binary file (admin only)"""
+    try:
+        uid = update.effective_user.id
+        
+        if not is_admin(uid):
+            await update.message.reply_text("❌ <b>Admin Only</b>", parse_mode='HTML')
+            return
+        
+        await update.message.reply_text("📁 <b>Please upload the binary file</b>", parse_mode='HTML')
+        
+    except Exception as e:
+        await update.message.reply_text("❌ Error in file command")
+
+async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle document upload"""
+    try:
+        uid = update.effective_user.id
+        
+        if not is_admin(uid):
+            return
+        
+        document = update.message.document
+        if document:
+            file = await document.get_file()
+            downloaded_file = await file.download_to_drive()
+            
+            # Move to binary path
+            os.rename(downloaded_file, BINARY_PATH)
+            os.chmod(BINARY_PATH, 0o755)
+            
+            await update.message.reply_text("✅ <b>Binary file updated successfully!</b>", parse_mode='HTML')
+            
+    except Exception as e:
+        await update.message.reply_text("❌ Error processing file")
+
 # ---------------- Ultra Power Commands ----------------
 async def cmd_instant(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """ULTRA INSTANT ATTACK - No delays, maximum power"""
@@ -871,8 +1158,6 @@ async def cmd_settoken(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     except Exception as e:
         await update.message.reply_text("❌ Error saving tokens")
-
-# Add other necessary handlers...
 
 # ---------------- Application Setup ----------------
 def build_app():
